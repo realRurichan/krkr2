@@ -16,6 +16,7 @@
 #include "tjsArray.h"
 
 #include <functional>
+#include <string>
 
 namespace TJS {
 
@@ -65,6 +66,142 @@ namespace TJS {
         }
 
         return flag;
+    }
+
+    static int TJSRegExpHexDigit(tjs_char ch) {
+        if(ch >= TJS_W('0') && ch <= TJS_W('9'))
+            return ch - TJS_W('0');
+        if(ch >= TJS_W('a') && ch <= TJS_W('f'))
+            return ch - TJS_W('a') + 10;
+        if(ch >= TJS_W('A') && ch <= TJS_W('F'))
+            return ch - TJS_W('A') + 10;
+        return -1;
+    }
+
+    static bool
+    TJSExpandLegacyRegExpHex(const tjs_char *begin, const tjs_char *end,
+                             std::basic_string<tjs_char> &expanded) {
+        // Older TJS/Boost patterns use a whole hexadecimal character value
+        // after \\x. Oniguruma instead reads \\xHH as encoded bytes. Only widen
+        // sequences of at least three digits; leave byte escapes untouched.
+        expanded.reserve(end - begin);
+        bool changed = false;
+        bool quoted = false;
+        bool inClass = false;
+        // 1: immediately after '[', 2: after the optional leading '^'.
+        // A closing bracket at either position is a literal class member.
+        int classPrefix = 0;
+        const tjs_char *p = begin;
+        while(p != end) {
+            if(quoted) {
+                if(*p == TJS_W('\\') && end - p >= 2 && p[1] == TJS_W('E')) {
+                    expanded.append(p, 2);
+                    p += 2;
+                    quoted = false;
+                } else {
+                    expanded += *p++;
+                }
+                continue;
+            }
+
+            // Parenthesized comments do not start quoted sections or classes.
+            if(!inClass && end - p >= 3 && p[0] == TJS_W('(') &&
+               p[1] == TJS_W('?') && p[2] == TJS_W('#')) {
+                do {
+                    expanded += *p;
+                } while(*p++ != TJS_W(')') && p != end);
+                continue;
+            }
+
+            if(*p != TJS_W('\\') || end - p < 2) {
+                if(!inClass && *p == TJS_W('[')) {
+                    inClass = true;
+                    classPrefix = 1;
+                } else if(inClass) {
+                    if(*p == TJS_W(']') && classPrefix == 0)
+                        inClass = false;
+                    classPrefix = classPrefix == 1 && *p == TJS_W('^') ? 2 : 0;
+                }
+                expanded += *p++;
+                continue;
+            }
+
+            if(p[1] == TJS_W('Q') && !inClass)
+                quoted = true;
+            if(inClass)
+                classPrefix = 0;
+
+            if(p[1] == TJS_W('x')) {
+                const tjs_char *digits = p + 2;
+                const tjs_char *next = digits;
+                unsigned int value = 0;
+                bool inRange = true;
+                while(next != end) {
+                    const int digit = TJSRegExpHexDigit(*next);
+                    if(digit < 0)
+                        break;
+                    if(value > (0x10ffffU - digit) / 16U)
+                        inRange = false;
+                    if(inRange)
+                        value = value * 16U + digit;
+                    ++next;
+                }
+                if(next - digits >= 3) {
+                    // Consume the entire value, never truncate a fifth digit
+                    // or silently wrap an out-of-range Unicode code point.
+                    if(!inRange)
+                        return false;
+                    while(digits + 1 != next && *digits == TJS_W('0'))
+                        ++digits;
+                    expanded += TJS_W("\\x{");
+                    expanded.append(digits, next);
+                    expanded += TJS_W('}');
+                    p = next;
+                    changed = true;
+                    continue;
+                }
+            }
+
+            // Copy escape pairs together: \\\\x is literal text, not \\x.
+            // Braced \\x{...} escapes also reach this path unchanged.
+            expanded.append(p, 2);
+            p += 2;
+        }
+        return changed;
+    }
+
+    static regex_t *TJSCompileRegExp(const tjs_char *begin, const tjs_char *end,
+                                     tjs_uint32 flags) {
+        regex_t *compiled = nullptr;
+        OnigErrorInfo einfo{};
+        const auto options = flags & ((ONIG_OPTION_MAXBIT << 1) - 1);
+        int error = onig_new(&compiled, reinterpret_cast<const UChar *>(begin),
+                             reinterpret_cast<const UChar *>(end), options,
+                             ONIG_ENCODING_UTF16_LE, ONIG_SYNTAX_PERL, &einfo);
+        if(error == ONIG_NORMAL)
+            return compiled;
+
+        // onig_new frees its partial result and sets it to null on failure.
+        // Preserve every pattern the native syntax already accepts, notably
+        // UTF-16 byte pairs such as \\x41\\x00.
+        std::basic_string<tjs_char> expanded;
+        if(error == ONIGERR_TOO_SHORT_MULTI_BYTE_STRING &&
+           TJSExpandLegacyRegExpHex(begin, end, expanded)) {
+            const auto *data = expanded.data();
+            error = onig_new(
+                &compiled, reinterpret_cast<const UChar *>(data),
+                reinterpret_cast<const UChar *>(data + expanded.size()),
+                options, ONIG_ENCODING_UTF16_LE, ONIG_SYNTAX_PERL, &einfo);
+            if(error == ONIG_NORMAL)
+                return compiled;
+        }
+
+        // einfo can refer into expanded, so format the error while it is alive.
+        char message[ONIG_MAX_ERROR_MESSAGE_LEN];
+        onig_error_code_to_str(reinterpret_cast<UChar *>(message), error,
+                               &einfo);
+        TJS_eTJSError(message);
+        return nullptr;
     }
 
     //---------------------------------------------------------------------------
@@ -300,16 +437,8 @@ TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ _compile) {
             onig_free(_this->RegEx);
             _this->RegEx = nullptr;
         }
-        OnigErrorInfo einfo;
-        int r = onig_new(&(_this->RegEx), (UChar *)exprstart,
-                         (UChar *)(expr.c_str() + expr.length()),
-                         flags & ((ONIG_OPTION_MAXBIT << 1) - 1),
-                         ONIG_ENCODING_UTF16_LE, ONIG_SYNTAX_PERL, &einfo);
-        if(r) {
-            char s[ONIG_MAX_ERROR_MESSAGE_LEN];
-            onig_error_code_to_str((UChar *)s, r, &einfo);
-            TJS_eTJSError(s);
-        }
+        _this->RegEx = TJSCompileRegExp(
+            exprstart, expr.c_str() + expr.length(), flags);
     } catch(std::exception &e) {
         TJS_eTJSError(e.what());
     }
@@ -643,16 +772,8 @@ void tTJSNC_RegExp::Compile(tjs_int numparams, tTJSVariant **param,
         onig_free(_this->RegEx);
         _this->RegEx = nullptr;
     }
-    OnigErrorInfo einfo;
-    int r = onig_new(&(_this->RegEx), (UChar *)expr.c_str(),
-                     (UChar *)(expr.c_str() + expr.length()),
-                     flags & ((ONIG_OPTION_MAXBIT << 1) - 1),
-                     ONIG_ENCODING_UTF16_LE, ONIG_SYNTAX_PERL, &einfo);
-    if(r) {
-        char s[ONIG_MAX_ERROR_MESSAGE_LEN];
-        onig_error_code_to_str((UChar *)s, r, &einfo);
-        TJS_eTJSError(s);
-    }
+    _this->RegEx = TJSCompileRegExp(
+        expr.c_str(), expr.c_str() + expr.length(), flags);
     _this->Flags = flags;
 }
 

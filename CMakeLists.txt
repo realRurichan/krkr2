@@ -295,7 +295,7 @@ if(KRKR2_ENABLE_PSBFILE_SMOKE)
     set_tests_properties(layer-alpha-runtime PROPERTIES TIMEOUT 75 LABELS "integration;graphics;plugin")
 endif()
 
-option(KRKR2_ENABLE_SCRIPT_SMOKE "Register text stream and parser integration tests" OFF)
+option(KRKR2_ENABLE_SCRIPT_SMOKE "Register text stream, parser and regular-expression integration tests" OFF)
 if(KRKR2_ENABLE_SCRIPT_SMOKE)
     if(NOT TARGET krkr2 OR ANDROID OR IOS)
         message(FATAL_ERROR "Script smoke requires the desktop krkr2 application")
@@ -310,7 +310,11 @@ if(KRKR2_ENABLE_SCRIPT_SMOKE)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/game-smoke/parser_error_repro.py"
                 --engine "$<TARGET_FILE:krkr2>"
                 --output-dir "${CMAKE_CURRENT_BINARY_DIR}/script-smoke/parser-error")
-    set_tests_properties(textstream-runtime parser-error-runtime
+    add_test(NAME regexp-compat-runtime
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/game-smoke/regexp_compat_repro.py"
+                --engine "$<TARGET_FILE:krkr2>"
+                --output-dir "${CMAKE_CURRENT_BINARY_DIR}/script-smoke/regexp-compat")
+    set_tests_properties(textstream-runtime parser-error-runtime regexp-compat-runtime
         PROPERTIES TIMEOUT 120 LABELS "integration;script")
 endif()
 

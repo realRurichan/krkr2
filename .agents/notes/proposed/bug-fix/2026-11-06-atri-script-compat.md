@@ -44,7 +44,7 @@ software GL 复现：相同脚本，UTF-16LE BOM 编码退出 0；mode1 编码�
 `ed06690` 另补测试超时回收竞态。DroidDeck 的 `fix/atri-krkr2-engine` 将源码 pin
 指向 `ed06690`，注册并检查两项新回归；现有预编译安装包 pin 尚未改变。
 
-上游独立分支基于 `main@dca7264`，草稿
+上游独立分支基于 `main@dca7264`，现已 ready for review 的
 [PR #56](https://github.com/2468785842/krkr2/pull/56) 只带相关修复、两个合成测试和
 构建说明，没有 fork 的其他功能或游戏资源。上游 CI 当前需要维护者批准。
 
@@ -56,6 +56,26 @@ software GL 复现：相同脚本，UTF-16LE BOM 编码退出 0；mode1 编码�
   执行前置赋值；随后未闭合函数在 EOF 报语法错误并退出 139。
 - 两轮前后正式引擎 SHA-256 一致，测试 Xvfb 和子进程已退出。
 
-DroidDeck Actions 页面报告 fork 因使用量自动暂停。普通 Actions 配置虽为 enabled，
-手动触发仍返回 422；已转用本机 Ubuntu 24.04 ARM64 隔离容器构建。完整编译和修复后
-运行结果尚未完成，不能将静态检查或旧版本红测试表述为新版本通过。
+用户重新开启 DroidDeck Actions 后，构建修正已快进同步到现有
+`feat/onsyuri-emulator-integration`，避免新分支无法读取旧依赖缓存。
+[CI 42152474926](https://github.com/realRurichan/DroidDeck/actions/runs/42152474926)
+完整构建 `ed06690`，六项 CTest 及目录/XP3 启动均通过。
+本地备用容器与临时依赖已清理，Colima 恢复原先 Stopped 状态。
+
+同一手机的私有目录实测新二进制 SHA-256
+`e4a8e24869c6da6b060e8d1263e90522d9333d10119ee9df2f54f1615ce3cecd`：
+TextStream 41 项、Parser 12 项及 4 条定位诊断全部通过，正常退出 0。
+正式引擎及原始 `data.xp3` 前后哈希一致，未替换正式安装。
+
+未转码 ATRI 越过原始崩溃并完成 KAG 初始化，随后在 `custom.ks:172` 的
+`calcRelative` 编译旧式四位十六进制正则转义时报 `too short multibyte code string`。
+25 秒观察超时停止（124），尚不能声称标题或游戏可玩。该后续错误不属于 PR #56。
+游戏补丁的 `kirikiriz=false` 正常加载；初始化又按预处理符号推导此变量。
+全局启用 `@set(kirikiriz=1)` 会进入不支持的 Windows 对话框分支，不能直接采用。
+运行期开关只用于定位差异，相关临时钩子已经移除。原始补丁和游戏资源保持不变。
+
+后续修复位于通用 RegExp 编译路径：原生语法报字节不足后，重试旧式三位及以上
+十六进制 Unicode 转义。不判断游戏名称、不注入游戏脚本、不改 `kirikiriz`。
+新增 `regexp-compat-runtime` 覆盖各编译入口、Unicode 范围、已有语法及错误恢复。
+修复前 `ed06690` 手机红测首批 25 项中 15 项旧语法失败、10 项已有语法通过；
+虽然进程退出 0，验证器仍正确按断言判失败。修复后的 ARM64 CI 和原始游戏验证待完成。

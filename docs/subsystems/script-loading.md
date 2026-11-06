@@ -1,4 +1,4 @@
-# 文本脚本读取与编译错误
+# 文本脚本读取、编译错误和正则兼容
 
 `cpp/core/base/TextStream.cpp` 负责 `Scripts.execStorage`、`Array.load` 等接口使用的
 文本流。mode 0/1 的简单编码格式为三字节 `FE FE mode`，随后是两字节 UTF-16LE BOM
@@ -14,22 +14,29 @@ TJS 的 Bison `parser::error` 进入已有 `_yyerror` 路径，记录首个错�
 顶层上下文；即使解析器从语法错误恢复并返回成功，已记录的错误也会阻止执行。
 诊断包含脚本名称和行号，调用脚本可以捕获异常后继续执行其他合法脚本。
 
+正则编译先使用现有 Oniguruma UTF-16LE/Perl 语法。如果编译报告字节不足，再尝试
+将旧版 TJS/Boost 的三位及以上 `\xHHH...` Unicode 转义转换成 `\x{HHH...}`。
+转换消费完整十六进制值并拒绝超过 U+10FFFF 的数值；保留双反斜杠、引用区段、
+已加花括号的转义及两位字节转义。原生语法已能编译的表达式不会被改写。
+构造、`compile`、`_compile` 和正则字面量共用此逻辑，不依赖游戏名称或运行期兼容开关。
+
 ## 实引擎回归
 
 在已有桌面应用构建配置中启用 `KRKR2_ENABLE_SCRIPT_SMOKE=ON`，重新构建 `krkr2`。
 测试不依赖商业游戏素材，Linux 需要有效的 X11 显示，例如：
 
 ```sh
-ctest --test-dir out/build -N -R '^(textstream|parser-error)-runtime$'
+ctest --test-dir out/build -N -R '^(textstream|parser-error|regexp-compat)-runtime$'
 LIBGL_ALWAYS_SOFTWARE=1 ALSOFT_DRIVERS=null xvfb-run -a \
-  ctest --test-dir out/build -R '^(textstream|parser-error)-runtime$' \
+  ctest --test-dir out/build -R '^(textstream|parser-error|regexp-compat)-runtime$' \
   --output-on-failure --no-tests=error
 ```
 
 测试运行真实应用及脚本 API，报告和进程日志保存在构建目录 `script-smoke/`。
 它们覆盖编码、异常传播和错误后的继续执行，不代表全部游戏兼容性、音视频或存读档验收。
 
-对应上游贡献为 [PR #56](https://github.com/2468785842/krkr2/pull/56)，当前为草稿。
+文本读取和解析错误对应上游 [PR #56](https://github.com/2468785842/krkr2/pull/56)，
+已 ready for review；该 PR 不包含后续正则兼容修改。
 
 ATRI 的原始故障和同机差分证据见
 [调查记录](../../.agents/notes/proposed/bug-fix/2026-11-06-atri-script-compat.md)。
