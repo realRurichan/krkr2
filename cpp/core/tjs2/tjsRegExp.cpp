@@ -104,6 +104,24 @@ namespace TJS {
                 continue;
             }
 
+            // Extended-mode line comments require scoped option tracking.
+            // Keep the native error rather than rewrite text inside comments.
+            if(!inClass && end - p >= 3 && p[0] == TJS_W('(') &&
+               p[1] == TJS_W('?')) {
+                const tjs_char *option = p + 2;
+                bool hasExtendedOption = false;
+                while(option != end &&
+                      ((*option >= TJS_W('a') && *option <= TJS_W('z')) ||
+                       (*option >= TJS_W('A') && *option <= TJS_W('Z')) ||
+                       *option == TJS_W('-'))) {
+                    hasExtendedOption |= *option == TJS_W('x');
+                    ++option;
+                }
+                if(hasExtendedOption && option != end &&
+                   (*option == TJS_W(':') || *option == TJS_W(')')))
+                    return false;
+            }
+
             // Parenthesized comments do not start quoted sections or classes.
             if(!inClass && end - p >= 3 && p[0] == TJS_W('(') &&
                p[1] == TJS_W('?') && p[2] == TJS_W('#')) {

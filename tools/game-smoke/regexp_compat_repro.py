@@ -79,6 +79,13 @@ regexResult = r.test("]") && r.test("Q") && r.test("中") && !r.test("A");'''),
     ("initial-bracket-in-negated-class", r'''
 var r = new RegExp("^[^]\\Q\\x4E2D]$");
 regexResult = r.test("文") && !r.test("]") && !r.test("Q") && !r.test("中");'''),
+    ("native-inline-extended-mode", r'''
+var r = new RegExp("(?x)^# [\n\\Q\\x0041\\E-\\x{4E2D}$");
+regexResult = r.test("\\x0041-中");'''),
+    ("legacy-inline-extended-rejected", r'''
+var caught = false;
+try { new RegExp("(?x)^# [\n\\Q\\x0041\\E-\\x4E2D$"); } catch (e) { caught = e.message != ""; }
+regexResult = caught && (new RegExp("^ok$")).test("ok");'''),
     ("malformed-constructor", r'''
 var caught = false; try { new RegExp("("); } catch (e) { caught = e.message != ""; }
 regexResult = caught && (new RegExp("^ok$")).test("ok");'''),
