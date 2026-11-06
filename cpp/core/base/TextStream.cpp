@@ -103,7 +103,8 @@ public:
                 _buffer.resize(len);
                 for(size_t i = 0; i < len; i++) {
                     // The payload starts at an odd offset; do not dereference
-                    // an unaligned char16_t pointer or depend on host byte order.
+                    // an unaligned char16_t pointer or depend on host byte
+                    // order.
                     const size_t offset = headerSize + i * 2;
                     char16_t ch = static_cast<char16_t>(
                         raw[offset] |
