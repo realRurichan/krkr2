@@ -29,5 +29,7 @@ LIBGL_ALWAYS_SOFTWARE=1 ALSOFT_DRIVERS=null xvfb-run -a \
 测试运行真实应用及脚本 API，报告和进程日志保存在构建目录 `script-smoke/`。
 它们覆盖编码、异常传播和错误后的继续执行，不代表全部游戏兼容性、音视频或存读档验收。
 
+对应上游贡献为 [PR #56](https://github.com/2468785842/krkr2/pull/56)，当前为草稿。
+
 ATRI 的原始故障和同机差分证据见
 [调查记录](../../.agents/notes/proposed/bug-fix/2026-11-06-atri-script-compat.md)。
